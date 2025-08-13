@@ -14,7 +14,7 @@ default_args = {
 }
 
 def fetch_posts_from_postgres(**context):
-    # Take Posts from local SQL database and save to Azure temp folder
+    
     logger.info("Starting fetch_posts_from_postgres task")
     
     try:
@@ -27,8 +27,8 @@ def fetch_posts_from_postgres(**context):
         
         logger.info("All imports successful")
         
-        # have to make a connection 
-        # PostgreSQL connection 
+        
+        
         pg_host = Variable.get('POSTGRES_HOST', 'localhost')
         pg_port = Variable.get('POSTGRES_PORT', '5432')
         pg_database = Variable.get('POSTGRES_DATABASE', 'your_database')
@@ -66,7 +66,7 @@ def fetch_posts_from_postgres(**context):
         if df.empty:
             raise ValueError("No posts data received from PostgreSQL")
 
-        # Data type conversions and cleanup
+        
         df['id'] = df['id'].astype(str)
         df['userId'] = df['userId'].astype(str) 
         df['tags'] = df['tags'].fillna('').astype(str)
@@ -74,14 +74,14 @@ def fetch_posts_from_postgres(**context):
         df['reactions_dislikes'] = pd.to_numeric(df['reactions_dislikes'], errors='coerce').fillna(0)
         df['views'] = pd.to_numeric(df['views'], errors='coerce').fillna(0)
         
-        # Add metadata columns
+        
         df['extraction_timestamp'] = datetime.now().isoformat()
         df['extraction_date'] = context['ds']
         df['source_system'] = 'PostgreSQL_Local'
 
         logger.info(f"Data prepared with shape: {df.shape}")
 
-        # Save to Azure temp folder
+        
         azure_connection_string = Variable.get('AZURE_STORAGE_CONNECTION_STRING')
         container_name = Variable.get('AZURE_CONTAINER_NAME', 'airflow-test')
         
@@ -112,10 +112,8 @@ def preprocess_posts(**context):
         from azure.storage.blob import BlobServiceClient
         from airflow.sdk import Variable
         
-        # Get temp blob path from previous task
         temp_blob = context['task_instance'].xcom_pull(task_ids='fetch_posts_from_postgres')
         
-        # Download from Azure temp folder
         azure_connection_string = Variable.get('AZURE_STORAGE_CONNECTION_STRING')
         container_name = Variable.get('AZURE_CONTAINER_NAME', 'airflow-test')
         
@@ -131,27 +129,24 @@ def preprocess_posts(**context):
         
         logger.info(f"Downloaded data with shape: {df.shape}")
         
-        # Data cleaning and preprocessing
+        
         df['title'] = df['title'].fillna('No Title Available')
         df['reactions_likes'] = df['reactions_likes'].clip(lower=0)
         df['reactions_dislikes'] = df['reactions_dislikes'].clip(lower=0)
         df['views'] = df['views'].fillna(0).astype(int)
         df = df[df['body'].str.len() > 10]
         
-        # Standardization
         df['id'] = df['id'].astype(int)
         df['userId'] = df['userId'].astype(int)
         df['tags_standardized'] = df['tags'].str.lower().str.strip()
         df['extraction_timestamp'] = pd.to_datetime(df['extraction_timestamp'])
         
-        # Text preprocessing
         df['title_cleaned'] = df['title'].str.strip().str.lower()
         df['title_cleaned'] = df['title_cleaned'].str.replace(r'[^\w\s]', '', regex=True)
         df['body_cleaned'] = df['body'].str.strip()
         df['body_cleaned'] = df['body_cleaned'].str.replace(r'\s+', ' ', regex=True)
         df['body_cleaned'] = df['body_cleaned'].str.replace(r'[^\w\s.,!?]', '', regex=True)
         
-        # Feature engineering
         df['title_length'] = df['title'].str.len()
         df['body_length'] = df['body'].str.len()
         df['word_count'] = df['body'].str.split().str.len()
@@ -163,7 +158,7 @@ def preprocess_posts(**context):
         df['is_short_post'] = df['body_length'] < 100
         df['is_popular'] = df['reactions_likes'] > df['reactions_likes'].quantile(0.75)
         
-        # Content analysis
+        
         positive_words = ['good', 'great', 'amazing', 'wonderful', 'excellent', 'love']
         negative_words = ['bad', 'terrible', 'awful', 'hate', 'worst', 'horrible']
         df['positive_keywords'] = df['body'].str.lower().str.count('|'.join(positive_words))
@@ -173,7 +168,7 @@ def preprocess_posts(**context):
         
         logger.info(f"Complex preprocessing complete. Final shape: {df.shape}")
         
-        # Save processed data to temp folder
+        
         processed_blob = f"temp/processed_posts_{context['ds_nodash']}.json"
         processed_client = blob_service_client.get_blob_client(
             container=container_name, 
@@ -183,7 +178,7 @@ def preprocess_posts(**context):
         processed_json = df.to_json(orient='records')
         processed_client.upload_blob(processed_json, overwrite=True)
         
-        # Clean up raw temp file
+        
         blob_client.delete_blob()
         
         logger.info(f"Saved processed data to temp folder: {processed_blob}")
@@ -203,7 +198,7 @@ def upload_to_azure(**context):
         from airflow.sdk import Variable
         from datetime import datetime
         
-        # Get temp blob path
+        
         temp_blob = context['task_instance'].xcom_pull(task_ids='preprocess_posts')
         
         azure_connection_string = Variable.get('AZURE_STORAGE_CONNECTION_STRING')
@@ -221,7 +216,7 @@ def upload_to_azure(**context):
         
         logger.info(f"Downloaded processed data with shape: {df.shape}")
         
-        # Convert to CSV and upload CSV
+        
         timestamp = datetime.now().strftime('%H%M')
         final_blob = f"posts/processed_posts_postgres_{context['ds_nodash']}_{timestamp}.csv"
         final_client = blob_service_client.get_blob_client(
@@ -235,7 +230,7 @@ def upload_to_azure(**context):
         
         final_client.upload_blob(csv_data, overwrite=True)
         
-        # Clean up temp
+        
         temp_client.delete_blob()
         
         blob_url = f"https://{blob_service_client.account_name}.blob.core.windows.net/{container_name}/{final_blob}"
